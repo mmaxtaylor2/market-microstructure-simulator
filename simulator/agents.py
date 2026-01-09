@@ -5,35 +5,34 @@ class MarketMaker:
         self.spread = spread
         self.size = size
 
-    def generate_orders(self, mid):
-        """
-        Posts liquidity on both sides around midprice.
-        """
+    def generate(self, mid):
+        bid = int(mid - self.spread)
+        ask = int(mid + self.spread)
         return [
-            ("buy", self.size, mid - self.spread),
-            ("sell", self.size, mid + self.spread),
+            ("buy", self.size, bid),
+            ("sell", self.size, ask)
         ]
 
 
 class NoiseTrader:
-    def __init__(self, intensity=0.3):
+    def __init__(self, intensity=0.3, max_size=5):
         self.intensity = intensity
+        self.max_size = max_size
 
-    def generate_orders(self, mid):
+    def generate(self, mid):
         if random.random() < self.intensity:
             side = random.choice(["buy", "sell"])
-            return [(side, random.randint(1, 5), mid)]
+            return [(side, random.randint(1, self.max_size), mid)]
         return []
 
 
 class InformedTrader:
-    def __init__(self, alpha_prob=0.1, alpha_size=3):
+    def __init__(self, alpha_prob=0.1, size=3):
         self.alpha_prob = alpha_prob
-        self.alpha_size = alpha_size
+        self.size = size
 
-    def generate_orders(self, mid):
+    def generate(self, mid):
         if random.random() < self.alpha_prob:
-            # informed trader "knows" direction
             side = random.choice(["buy", "sell"])
-            return [(side, self.alpha_size, mid)]
+            return [(side, self.size, mid)]
         return []

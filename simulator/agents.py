@@ -1,1 +1,4 @@
+MarketMaker
+NoiseTrader
+InformedTrader
 

@@ -1,52 +1,70 @@
 import streamlit as st
-from simulator.exchange import Exchange
-from simulator.agents import MarketMaker, NoiseTrader, InformedTrader
-from simulator.metrics import compute_metrics
 import pandas as pd
 import matplotlib.pyplot as plt
+from simulator.exchange import Exchange
+from simulator.agents import MarketMaker, NoiseTrader, InformedTrader
+from simulator.metrics import compute_slippage_and_impact
+from simulator.utils import ladder_view
 
 st.title("Market Microstructure Simulator")
 
-st.sidebar.header("Simulation Settings")
-steps = st.sidebar.slider("Simulation Steps", 10, 500, 100)
+st.sidebar.header("Parameters")
+steps = st.sidebar.slider("Steps", 50, 1000, 200)
 mm_spread = st.sidebar.slider("Market Maker Spread", 1, 10, 2)
-noise_intensity = st.sidebar.slider("Noise Trader Intensity", 0.0, 1.0, 0.3)
-alpha_prob = st.sidebar.slider("Informed Trader Probability", 0.0, 1.0, 0.1)
+noise_intensity = st.sidebar.slider("Noise Intensity", 0.0, 1.0, 0.3)
+alpha_prob = st.sidebar.slider("Informed Alpha Probability", 0.0, 1.0, 0.1)
 
-run_button = st.sidebar.button("Run Simulation")
-
-if run_button:
-    ex = Exchange()
+if st.sidebar.button("Run Simulation"):
+    ex = Exchange(initial_price=100)
 
     mm = MarketMaker(spread=mm_spread)
     nt = NoiseTrader(intensity=noise_intensity)
     it = InformedTrader(alpha_prob=alpha_prob)
 
-    trades = []
-    book_snapshots = []
+    mids = []
+    spreads = []
 
     for step in range(steps):
-        mid = ex.get_mid_price()
+        mid = ex.mid()
+        mids.append(mid)
+        spreads.append(ex.spread())
 
         for agent in [mm, nt, it]:
-            orders = agent.generate_orders(mid)
-            for side, qty, price in orders:
-                ex.submit_order(side, qty, price)
+            for side, qty, price in agent.generate(mid):
+                ex.submit_order(side, qty, price, step)
 
-        trades.extend(ex.trades)
-        book_snapshots.append({
-            "spread": ex.book.spread(),
-            "mid": ex.get_mid_price()
-        })
+    # process depth snapshot
+    depth = ex.book.aggregate_depth()
+    bids, asks = ladder_view(depth)
 
-    st.subheader("Trade Prices Over Time")
-    if trades:
-        df = pd.DataFrame(trades)
-        st.line_chart(df["price"])
+    # trade analytics
+    blotter = compute_slippage_and_impact(ex.trades, mids)
 
-    st.subheader("Spread Over Time")
-    sp = [b["spread"] for b in book_snapshots]
-    st.line_chart(sp)
+    st.subheader("Mid Price Path")
+    st.line_chart(mids)
 
-    st.subheader("Execution Metrics")
-    st.write(compute_metrics(trades, book_snapshots))
+    st.subheader("Spread Path")
+    st.line_chart(spreads)
+
+    if not blotter.empty:
+        st.subheader("Slippage Distribution")
+        st.bar_chart(blotter["slippage"])
+
+        st.subheader("Impact vs Step")
+        st.line_chart(blotter.set_index("step")["impact"])
+
+        st.subheader("Trade Blotter")
+        st.dataframe(blotter.sort_values("step"))
+
+    st.subheader("Final Depth Histogram")
+    fig, ax = plt.subplots()
+    for p, q in bids:
+        ax.barh([p], [q], color="blue")
+    for p, q in asks:
+        ax.barh([p], [q], color="red")
+    ax.set_xlabel("Size")
+    ax.set_ylabel("Price")
+    st.pyplot(fig)
+
+    st.subheader("Level II Ladder")
+    st.write({"bids": bids, "asks": asks})
